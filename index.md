@@ -1,7 +1,7 @@
 # Progression
 
-## [first week](https://jedsadasrijunpoe.github.io/IR_remote_MQTT_MATLAB/blogs/progress-28-10-2022.html)
+## [first week](https://jedsadasrijunpoe.github.io/IR_remote_MQTT_MATLAB/blogs/progress-10-28-2022.html)
 
-## [second week](https://jedsadasrijunpoe.github.io/IR_remote_MQTT_MATLAB/blogs/progress-04-11-2022.html)
+## [second week](https://jedsadasrijunpoe.github.io/IR_remote_MQTT_MATLAB/blogs/progress-11-04-2022.html)
 
 ## [third week](https://jedsadasrijunpoe.github.io/IR_remote_MQTT_MATLAB/blogs/progress-11-11-2022.html)
