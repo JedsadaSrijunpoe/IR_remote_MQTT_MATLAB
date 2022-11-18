@@ -37,7 +37,7 @@ classdef main < matlab.apps.AppBase
         code = string([])
         code_listbox = string([])
         code_dict = dictionary(string([]),string([]));
-        MyMQTT = mqttclient("[MQTT broker's addresss]"); %Your MQTT broker's addresss here
+        MyMQTT = mqttclient("MQTT BROKER ADDRESS"); %Your MQTT broker's addresss here
     end
     
     methods (Access = public)
@@ -99,7 +99,7 @@ classdef main < matlab.apps.AppBase
                 disp(N);
             
                 % plot the IR signal graph.
-                infraredPlot(app,timing_data,N);
+                infraredPlot(app,timing_data,N+2000);
             
             % Concatenate all of the timing data.
             else
@@ -125,7 +125,10 @@ classdef main < matlab.apps.AppBase
             for i=1 : (numel(data))/2
                 v = v + u(t, delta) - u(t,(delta+abs(data(i,1))));
                 delta = delta + abs(data(i,1)) + abs(data(i,2));
-            end % end for
+            end % end for;
+            disp(delta);
+            v = v + u(t, delta);
+            %disp(v);
             
             % plot the graph.
             plot(app.UIAxes,t,v,'b','linewidth',2);
