@@ -1,0 +1,375 @@
+classdef main < matlab.apps.AppBase
+
+    % Properties that correspond to app components
+    properties (Access = public)
+        UIFigure                    matlab.ui.Figure
+        TOGGLEButton                matlab.ui.control.Button
+        OFFButton                   matlab.ui.control.Button
+        ONButton                    matlab.ui.control.Button
+        TaskDropDown                matlab.ui.control.DropDown
+        TaskDropDownLabel           matlab.ui.control.Label
+        CodeDropDown                matlab.ui.control.DropDown
+        CodeDropDownLabel           matlab.ui.control.Label
+        RemovecodeButton            matlab.ui.control.Button
+        SavecodeButton              matlab.ui.control.Button
+        RecievedcodeEditField       matlab.ui.control.EditField
+        RecievedcodeEditFieldLabel  matlab.ui.control.Label
+        TasklistListBox             matlab.ui.control.ListBox
+        TasklistListBoxLabel        matlab.ui.control.Label
+        SavetaskButton              matlab.ui.control.Button
+        RemovetaskButton            matlab.ui.control.Button
+        UIAxes                      matlab.ui.control.UIAxes
+    end
+
+    
+    properties (Access = private)
+        arduinoObj % Serial arduino object
+        topic_dict = dictionary( ...
+            "ON","zigbee2mqtt/0x00158d0003532089/set", ...
+            "OFF","zigbee2mqtt/0x00158d0003532089/set", ...
+            "TOGGLE","zigbee2mqtt/0x00158d0003532089/set")
+            %Your task name as keys and your tasks's topic as values
+        task_dict = dictionary( ...
+            "ON","ON", ...
+            "OFF","OFF", ...
+            "TOGGLE","TOGGLE")
+            %Your task name as keys and your tasks's payload as values
+        code = string([])
+        code_listbox = string([])
+        code_dict = dictionary(string([]),string([]));
+        MyMQTT = mqttclient("MQTT BROKER ADDRESS"); %Your MQTT broker's addresss here
+    end
+    
+    methods (Access = public)
+
+        function Dict = setTask(app,Dict,code,task)
+            Dict(code) = string(task);
+            disp(Dict(code));
+        end 
+        
+        function Dict = removeTask(app,Dict,code)
+            Dict(code) = [];
+        end 
+        
+        function readTimeData(app,src,~)
+
+            % Read the ASCII data from the serialport object.
+            data = readline(src);
+
+            % Use string replace to remove white space.
+            data = strrep(data,' ',''); 
+
+            % Received the code that has been decoded into hex code.
+            if numel(regexp(data,"Code")) > 0 
+                 code = split(data,":");
+                 code = code(2);
+                 app.RecievedcodeEditField.Value = code;
+                 callTask(app,code,app.code_dict,app.MyMQTT);
+            
+            % The frist line of timing data has the word "rawData".
+            elseif numel(regexp(data,"rawData")) > 0
+                % split the unwanted string.
+                first_data = split(data,"rawData");
+                first_data = first_data(2);
+            
+                % concatenate all the data.
+                src.UserData.Data = src.UserData.Data + first_data;
+            
+            % The last line of timing data has the word "Sum".
+            elseif numel(regexp(data,"Sum")) > 0
+                % After received all of the timing data, split them into array.
+                timing_data = split(src.UserData.Data,",");
+            
+                % Clear UserData for receive the next data.
+                src.UserData.Data = "";
+            
+                % Split timing data agian and its become 2D array.
+                timing_data = split(timing_data,"+");
+                disp(timing_data);
+            
+                % Change the header of IR signal to be a fixed time.
+                timing_data(1,1) = 2000;
+            
+                % Convert data type from string to double.
+                timing_data = str2double(timing_data);
+                
+                % Get sum of all timing data.
+                N = split(data,"Sum:");
+                N = str2double(N(2));
+                disp(N);
+            
+                % plot the IR signal graph.
+                infraredPlot(app,timing_data,N+2000);
+            
+            % Concatenate all of the timing data.
+            else
+                 src.UserData.Data = src.UserData.Data + data;
+            
+            end % end if
+        end % end function
+        
+        function infraredPlot(app,data,N)
+            % Create array of start from 0 to N(sum of timing data).
+            t= linspace(0,N,N) ;
+            
+            % u is rectangular function.
+            u = @(t,t0) (t - t0 >= 0);
+            
+            % v is all of the IR signal function.
+            v =  0 ;
+            
+            % delta is like pointer for creating a rectangular pulse.
+            delta = 0 ;
+            
+            % for loop all the timing data to create rectangular pulse.
+            for i=1 : (numel(data))/2
+                v = v + u(t, delta) - u(t,(delta+abs(data(i,1))));
+                delta = delta + abs(data(i,1)) + abs(data(i,2));
+            end % end for;
+            disp(delta);
+            v = v + u(t, delta);
+            %disp(v);
+            
+            % plot the graph.
+            plot(app.UIAxes,t,v,'b','linewidth',2);
+            axis(app.UIAxes,[-1000 N+500 -0.5 1.5]);
+            
+            end % end function
+        
+        function callTask(app,code,Dict,MQTT)
+
+            if isKey(Dict,code)
+                disp(Dict(code));
+                write(MQTT, app.topic_dict(Dict(code)), app.task_dict(Dict(code)));
+            else
+                disp("No task");
+            
+            end % end if
+            end % end function
+
+    end
+    
+
+    % Callbacks that handle component events
+    methods (Access = private)
+
+        % Code that executes after component creation
+        function startupFcn(app)
+            app.TaskDropDown.Items = keys(app.task_dict);
+            app.arduinoObj = serialport("COM3",115200);
+            configureTerminator(app.arduinoObj,"CR/LF");
+            flush(app.arduinoObj);
+            %app.arduinoObj.UserData = struct("Data","","Dict",code_dict,"MQTT",MyMQTT);
+            %configureCallback(app.arduinoObj,"terminator",@(src,event) readTimeData(app,src,event));
+            app.arduinoObj.UserData = struct("Data","");
+            configureCallback(app.arduinoObj,"terminator",@(src,event) readTimeData(app,src,event));
+        end
+
+        % Button pushed function: SavecodeButton
+        function SavecodeButtonPushed(app, event)
+            if ~ismember(app.RecievedcodeEditField.Value,app.CodeDropDown.Items)
+                app.code(end+1) = app.RecievedcodeEditField.Value;
+                app.CodeDropDown.Items = app.code;
+            end
+        end
+
+        % Button pushed function: RemovecodeButton
+        function RemovecodeButtonPushed(app, event)
+            app.code(app.code == app.CodeDropDown.Value) = [];
+            app.CodeDropDown.Items = app.code;
+        end
+
+        % Button pushed function: RemovetaskButton
+        function RemovetaskButtonPushed(app, event)
+            selected_listbox_item = split(app.TasklistListBox.Value, " = ");
+            if numel(selected_listbox_item) > 0
+                key = selected_listbox_item(1);
+                key = string(key);
+                app.code_dict = removeTask(app,app.code_dict,key);
+
+                [~,idx] = ismember(app.TasklistListBox.Value,app.code_listbox);
+                app.code_listbox(idx) = [];
+                app.TasklistListBox.Items = app.code_listbox;
+            end
+        end
+
+        % Button pushed function: SavetaskButton
+        function SavetaskButtonPushed(app, event)
+            if numel(app.code_listbox) > 0
+                code_listbox_split = split(app.code_listbox," = ");
+                code_listbox_split = code_listbox_split(:,:,1);
+                [is_found,idx] = ismember(app.CodeDropDown.Value,code_listbox_split);
+            else
+                is_found = false;
+            end
+
+            if is_found
+                app.code_listbox(idx) = app.CodeDropDown.Value + " = " + app.TaskDropDown.Value;
+            else
+                if numel(app.CodeDropDown.Items) > 0
+                    app.code_listbox(end+1) = app.CodeDropDown.Value + " = " + app.TaskDropDown.Value;
+                end
+            end
+            app.TasklistListBox.Items = app.code_listbox;
+            app.code_dict = setTask(app,app.code_dict,app.CodeDropDown.Value,app.TaskDropDown.Value);
+        end
+
+        % Button pushed function: ONButton
+        function ONButtonPushed(app, event)
+            write(app.MyMQTT, "zigbee2mqtt/0x00158d0003532089/set", "ON");
+        end
+
+        % Button pushed function: OFFButton
+        function OFFButtonPushed(app, event)
+            write(app.MyMQTT, "zigbee2mqtt/0x00158d0003532089/set", "OFF");
+        end
+
+        % Button pushed function: TOGGLEButton
+        function TOGGLEButtonPushed(app, event)
+            write(app.MyMQTT, "zigbee2mqtt/0x00158d0003532089/set", "TOGGLE");
+        end
+    end
+
+    % Component initialization
+    methods (Access = private)
+
+        % Create UIFigure and components
+        function createComponents(app)
+
+            % Create UIFigure and hide until all components are created
+            app.UIFigure = uifigure('Visible', 'off');
+            app.UIFigure.Position = [100 100 640 480];
+            app.UIFigure.Name = 'MATLAB App';
+
+            % Create UIAxes
+            app.UIAxes = uiaxes(app.UIFigure);
+            title(app.UIAxes, 'IR PULSE SIGNAL')
+            xlabel(app.UIAxes, 'Time(microsec)')
+            ylabel(app.UIAxes, 'Logic')
+            zlabel(app.UIAxes, 'Z')
+            app.UIAxes.XLim = [-0.5 10];
+            app.UIAxes.YLim = [-0.5 3.5];
+            app.UIAxes.YTick = [0 1];
+            app.UIAxes.YTickLabel = {'0'; '1'};
+            app.UIAxes.Position = [13 268 600 192];
+
+            % Create RemovetaskButton
+            app.RemovetaskButton = uibutton(app.UIFigure, 'push');
+            app.RemovetaskButton.ButtonPushedFcn = createCallbackFcn(app, @RemovetaskButtonPushed, true);
+            app.RemovetaskButton.Position = [382 89 86 28];
+            app.RemovetaskButton.Text = 'Remove task';
+
+            % Create SavetaskButton
+            app.SavetaskButton = uibutton(app.UIFigure, 'push');
+            app.SavetaskButton.ButtonPushedFcn = createCallbackFcn(app, @SavetaskButtonPushed, true);
+            app.SavetaskButton.Position = [382 128 86 28];
+            app.SavetaskButton.Text = 'Save task';
+
+            % Create TasklistListBoxLabel
+            app.TasklistListBoxLabel = uilabel(app.UIFigure);
+            app.TasklistListBoxLabel.HorizontalAlignment = 'right';
+            app.TasklistListBoxLabel.Position = [52 134 49 22];
+            app.TasklistListBoxLabel.Text = 'Task list';
+
+            % Create TasklistListBox
+            app.TasklistListBox = uilistbox(app.UIFigure);
+            app.TasklistListBox.Items = {};
+            app.TasklistListBox.Position = [116 15 257 141];
+            app.TasklistListBox.Value = {};
+
+            % Create RecievedcodeEditFieldLabel
+            app.RecievedcodeEditFieldLabel = uilabel(app.UIFigure);
+            app.RecievedcodeEditFieldLabel.HorizontalAlignment = 'right';
+            app.RecievedcodeEditFieldLabel.Position = [52 231 84 22];
+            app.RecievedcodeEditFieldLabel.Text = 'Recieved code';
+
+            % Create RecievedcodeEditField
+            app.RecievedcodeEditField = uieditfield(app.UIFigure, 'text');
+            app.RecievedcodeEditField.Editable = 'off';
+            app.RecievedcodeEditField.Position = [151 227 179 30];
+
+            % Create SavecodeButton
+            app.SavecodeButton = uibutton(app.UIFigure, 'push');
+            app.SavecodeButton.ButtonPushedFcn = createCallbackFcn(app, @SavecodeButtonPushed, true);
+            app.SavecodeButton.Position = [344 226 79 30];
+            app.SavecodeButton.Text = 'Save code';
+
+            % Create RemovecodeButton
+            app.RemovecodeButton = uibutton(app.UIFigure, 'push');
+            app.RemovecodeButton.ButtonPushedFcn = createCallbackFcn(app, @RemovecodeButtonPushed, true);
+            app.RemovecodeButton.Position = [382 177 100 30];
+            app.RemovecodeButton.Text = 'Remove code';
+
+            % Create CodeDropDownLabel
+            app.CodeDropDownLabel = uilabel(app.UIFigure);
+            app.CodeDropDownLabel.HorizontalAlignment = 'right';
+            app.CodeDropDownLabel.Position = [52 181 34 22];
+            app.CodeDropDownLabel.Text = 'Code';
+
+            % Create CodeDropDown
+            app.CodeDropDown = uidropdown(app.UIFigure);
+            app.CodeDropDown.Items = {'None'};
+            app.CodeDropDown.Position = [101 181 100 22];
+            app.CodeDropDown.Value = 'None';
+
+            % Create TaskDropDownLabel
+            app.TaskDropDownLabel = uilabel(app.UIFigure);
+            app.TaskDropDownLabel.HorizontalAlignment = 'right';
+            app.TaskDropDownLabel.Position = [209 181 30 22];
+            app.TaskDropDownLabel.Text = 'Task';
+
+            % Create TaskDropDown
+            app.TaskDropDown = uidropdown(app.UIFigure);
+            app.TaskDropDown.Position = [254 181 100 22];
+
+            % Create ONButton
+            app.ONButton = uibutton(app.UIFigure, 'push');
+            app.ONButton.ButtonPushedFcn = createCallbackFcn(app, @ONButtonPushed, true);
+            app.ONButton.Position = [497 128 100 28];
+            app.ONButton.Text = 'ON';
+
+            % Create OFFButton
+            app.OFFButton = uibutton(app.UIFigure, 'push');
+            app.OFFButton.ButtonPushedFcn = createCallbackFcn(app, @OFFButtonPushed, true);
+            app.OFFButton.Position = [497 89 100 28];
+            app.OFFButton.Text = 'OFF';
+
+            % Create TOGGLEButton
+            app.TOGGLEButton = uibutton(app.UIFigure, 'push');
+            app.TOGGLEButton.ButtonPushedFcn = createCallbackFcn(app, @TOGGLEButtonPushed, true);
+            app.TOGGLEButton.Position = [497 51 100 28];
+            app.TOGGLEButton.Text = 'TOGGLE';
+
+            % Show the figure after all components are created
+            app.UIFigure.Visible = 'on';
+        end
+    end
+
+    % App creation and deletion
+    methods (Access = public)
+
+        % Construct app
+        function app = main
+
+            % Create UIFigure and components
+            createComponents(app)
+
+            % Register the app with App Designer
+            registerApp(app, app.UIFigure)
+
+            % Execute the startup function
+            runStartupFcn(app, @startupFcn)
+
+            if nargout == 0
+                clear app
+            end
+        end
+
+        % Code that executes before app deletion
+        function delete(app)
+
+            % Delete UIFigure when app is deleted
+            delete(app.UIFigure)
+        end
+    end
+end
