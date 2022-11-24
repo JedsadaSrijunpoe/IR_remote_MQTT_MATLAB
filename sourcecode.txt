@@ -1,4 +1,4 @@
-classdef main < matlab.apps.AppBase
+classdef IR_remote_to_MQTT_IOT_with_GUI_app < matlab.apps.AppBase
 
     % Properties that correspond to app components
     properties (Access = public)
@@ -37,14 +37,13 @@ classdef main < matlab.apps.AppBase
         code = string([])
         code_listbox = string([])
         code_dict = dictionary(string([]),string([]));
-        MyMQTT = mqttclient("MQTT BROKER ADDRESS"); %Your MQTT broker's addresss here
+        MyMQTT = mqttclient("tcp://YOUR MQTT BROKER ADDRESS HERE"); %Your MQTT broker's addresss here
     end
     
     methods (Access = public)
 
         function Dict = setTask(app,Dict,code,task)
             Dict(code) = string(task);
-            disp(Dict(code));
         end 
         
         function Dict = removeTask(app,Dict,code)
@@ -61,10 +60,10 @@ classdef main < matlab.apps.AppBase
 
             % Received the code that has been decoded into hex code.
             if numel(regexp(data,"Code")) > 0 
-                 code = split(data,":");
-                 code = code(2);
-                 app.RecievedcodeEditField.Value = code;
-                 callTask(app,code,app.code_dict,app.MyMQTT);
+                 raw_code = split(data,"Code:");
+                 raw_code = raw_code(2);
+                 app.RecievedcodeEditField.Value = raw_code;
+                 callTask(app,raw_code,app.code_dict,app.MyMQTT);
             
             % The frist line of timing data has the word "rawData".
             elseif numel(regexp(data,"rawData")) > 0
@@ -85,7 +84,6 @@ classdef main < matlab.apps.AppBase
             
                 % Split timing data agian and its become 2D array.
                 timing_data = split(timing_data,"+");
-                disp(timing_data);
             
                 % Change the header of IR signal to be a fixed time.
                 timing_data(1,1) = 2000;
@@ -93,10 +91,9 @@ classdef main < matlab.apps.AppBase
                 % Convert data type from string to double.
                 timing_data = str2double(timing_data);
                 
-                % Get sum of all timing data.
+                % Get sum of all timing data minus the header.
                 N = split(data,"Sum:");
                 N = str2double(N(2));
-                disp(N);
             
                 % plot the IR signal graph.
                 infraredPlot(app,timing_data,N+2000);
@@ -126,9 +123,7 @@ classdef main < matlab.apps.AppBase
                 v = v + u(t, delta) - u(t,(delta+abs(data(i,1))));
                 delta = delta + abs(data(i,1)) + abs(data(i,2));
             end % end for;
-            disp(delta);
             v = v + u(t, delta);
-            %disp(v);
             
             % plot the graph.
             plot(app.UIAxes,t,v,'b','linewidth',2);
@@ -139,11 +134,7 @@ classdef main < matlab.apps.AppBase
         function callTask(app,code,Dict,MQTT)
 
             if isKey(Dict,code)
-                disp(Dict(code));
                 write(MQTT, app.topic_dict(Dict(code)), app.task_dict(Dict(code)));
-            else
-                disp("No task");
-            
             end % end if
             end % end function
 
@@ -156,11 +147,10 @@ classdef main < matlab.apps.AppBase
         % Code that executes after component creation
         function startupFcn(app)
             app.TaskDropDown.Items = keys(app.task_dict);
+            app.CodeDropDown.Items = app.code;
             app.arduinoObj = serialport("COM3",115200);
             configureTerminator(app.arduinoObj,"CR/LF");
             flush(app.arduinoObj);
-            %app.arduinoObj.UserData = struct("Data","","Dict",code_dict,"MQTT",MyMQTT);
-            %configureCallback(app.arduinoObj,"terminator",@(src,event) readTimeData(app,src,event));
             app.arduinoObj.UserData = struct("Data","");
             configureCallback(app.arduinoObj,"terminator",@(src,event) readTimeData(app,src,event));
         end
@@ -349,7 +339,7 @@ classdef main < matlab.apps.AppBase
     methods (Access = public)
 
         % Construct app
-        function app = main
+        function app = IR_remote_to_MQTT_IOT_with_GUI_app
 
             % Create UIFigure and components
             createComponents(app)
